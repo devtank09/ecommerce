@@ -1,4 +1,4 @@
-# CloudMart — 5-Microservice Polyglot Persistence E-Commerce (PostgreSQL + MongoDB) for Docker & Azure AKS
+# CloudMart — E-Commerce website
 
 Purpose-built to satisfy all mentor architecture requirements:
 1. **`deployment.yaml` & `service.yaml`**: Unified Kubernetes manifests exposing the application publicly via `type: LoadBalancer` (`cloudmart-public-lb`).
