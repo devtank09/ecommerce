@@ -1,0 +1,39 @@
+# 1. Node.js Dependencies (applies to all 5 microservice subfolders)
+node_modules/
+**/node_modules/
+.npm/
+*.tgz
+
+# 2. Environment Variables & Cloud / Kubernetes Credentials
+.env
+.env.*
+!.env.example
+kubeconfig
+*kubeconfig*
+.azure/
+*.pem
+*.key
+
+# 3. Local PostgreSQL & MongoDB Data Volumes
+pgdata/
+mongodata/
+data/
+*.sql.gz
+*.dump
+*.archive
+
+# 4. Runtime & Package Manager Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 5. OS, Editor & Archive Artifacts
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.zip

@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CloudMart — Microservices E-Commerce on Azure Kubernetes Service (AKS) & Docker</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+    .font-mono-code {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    @keyframes pulseRing {
+      0% { transform: scale(0.95); opacity: 0.9; }
+      70% { transform: scale(1.35); opacity: 0; }
+      100% { transform: scale(1.35); opacity: 0; }
+    }
+    .pulse-dot::after {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border-radius: 9999px;
+      background-color: #10b981;
+      animation: pulseRing 2s infinite;
+      z-index: -1;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col selection:bg-sky-500 selection:text-white">
+
+  <!-- Top Azure LoadBalancer Telemetry Ribbon -->
+  <div class="bg-slate-900/95 border-b border-slate-800 px-3 sm:px-6 py-2 text-xs">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+      <div class="flex flex-wrap items-center gap-2 sm:gap-4">
+        <span class="inline-flex items-center gap-1.5 font-medium text-emerald-400 bg-emerald-950/70 border border-emerald-800/70 px-2.5 py-0.5 rounded-full">
+          <span class="relative w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
+          Azure Standard LoadBalancer: ACTIVE
+        </span>
+        <span class="font-mono-code text-slate-300 hidden md:inline">
+          svc/cloudmart-public-lb &rarr; <span id="lb-external-ip" class="text-sky-400 font-semibold">20.198.114.72:80</span>
+        </span>
+        <span class="font-mono-code text-slate-400 hidden lg:inline">
+          Active Ingress Pod: <span id="active-gateway-pod" class="text-amber-300">frontend-gateway-7d9c4b-x2k9p</span>
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-slate-400">Last Routed Microservice:</span>
+        <span id="last-routed-pill" class="font-mono-code bg-sky-950/90 text-sky-300 border border-sky-800 px-2 py-0.5 rounded">
+          catalogue-service:3002 (pod-a1)
+        </span>
+        <button id="btn-simulate-traffic" type="button" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-0.5 rounded transition">
+          Ping LoadBalancer
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Primary Navigation Header -->
+  <header class="bg-slate-900/80 backdrop-blur border-b border-slate-800 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+      <!-- Brand -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20 font-bold text-lg tracking-tight">
+          CM
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-base sm:text-lg tracking-tight text-white">CloudMart</h1>
+            <span class="text-[11px] font-mono-code uppercase px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              AKS + Docker Lab
+            </span>
+          </div>
+          <p class="text-xs text-slate-400 hidden sm:block">5 Microservices + PostgreSQL & MongoDB + LoadBalancer</p>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="flex flex-wrap items-center gap-1 sm:gap-1.5 bg-slate-950/80 p-1 rounded-xl border border-slate-800" aria-label="Main Navigation">
+        <button type="button" data-nav="catalogue" class="nav-tab px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition bg-sky-600 text-white">
+          Catalogue
+        </button>
+        <button type="button" data-nav="cart" class="nav-tab px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition text-slate-300 hover:text-white hover:bg-slate-800/60 flex items-center gap-1.5">
+          <span>Cart</span>
+          <span id="nav-cart-badge" class="px-1.5 py-0.2 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40">2</span>
+        </button>
+        <button type="button" data-nav="shipping" class="nav-tab px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition text-slate-300 hover:text-white hover:bg-slate-800/60">
+          Shipping &amp; Orders
+        </button>
+        <button type="button" data-nav="auth" class="nav-tab px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition text-slate-300 hover:text-white hover:bg-slate-800/60 flex items-center gap-1.5">
+          <span id="nav-auth-label">Account (Aarav)</span>
+        </button>
+        <button type="button" data-nav="devops" class="nav-tab px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition text-amber-300 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/30">
+          AKS &amp; Docker Manifests
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Workspace Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left / Primary View Column (8 cols on lg) -->
+    <div class="lg:col-span-8 space-y-6">
+
+      <!-- VIEW 1: CATALOGUE SERVICE -->
+      <section id="view-catalogue" class="space-y-5">
+        <div class="bg-gradient-to-r from-slate-900 via-slate-900 to-sky-950/60 border border-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div class="space-y-1">
+            <div class="inline-flex items-center gap-2 text-xs font-mono-code text-sky-400">
+              <span>GET /api/catalogue/products</span>
+              <span>&bull;</span>
+              <span>ClusterIP: catalogue-service:3002 &bull; DB: MongoDB (:27017)</span>
+            </div>
+            <h2 class="text-xl sm:text-2xl font-bold text-white">Cloud-Native Hardware Catalogue</h2>
+            <p class="text-xs sm:text-sm text-slate-300">Every search, filter, or cart action dispatches a simulated request across the Azure LoadBalancer and AKS pod replicas.</p>
+          </div>
+          <div class="flex flex-col sm:items-end gap-1.5 shrink-0">
+            <span class="text-xs text-slate-400">Catalogue Replicas Ready</span>
+            <div class="flex items-center gap-1.5 font-mono-code text-xs">
+              <span class="px-2 py-1 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">pod-cat-1: READY</span>
+              <span class="px-2 py-1 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">pod-cat-2: READY</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Search & Category Filter Controls -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+          <div class="relative flex-1">
+            <input
+              id="catalogue-search"
+              type="text"
+              placeholder="Search products by name, SKU, or spec (e.g., 4K, NVMe, Keyboard)..."
+              class="w-full bg-slate-950 border border-slate-800 focus:border-sky-500 focus:outline-none rounded-lg pl-3.5 pr-9 py-2 text-sm text-slate-100 placeholder-slate-500"
+            />
+            <button id="btn-clear-search" type="button" title="Reset search" class="absolute right-2.5 top-2.5 text-xs text-slate-400 hover:text-white">
+              Clear
+            </button>
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5" id="category-filters">
+            <button type="button" data-cat="All" class="cat-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-600 text-white">All</button>
+            <button type="button" data-cat="Peripherals" class="cat-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700">Peripherals</button>
+            <button type="button" data-cat="Displays" class="cat-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700">Displays</button>
+            <button type="button" data-cat="Audio" class="cat-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700">Audio</button>
+            <button type="button" data-cat="Storage" class="cat-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700">Storage</button>
+            <button type="button" data-cat="Accessories" class="cat-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700">Accessories</button>
+          </div>
+        </div>
+
+        <!-- Product Grid -->
+        <div id="catalogue-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+      </section>
+
+      <!-- VIEW 2: CART SERVICE -->
+      <section id="view-cart" class="space-y-5 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div class="inline-flex items-center gap-2 text-xs font-mono-code text-indigo-400">
+              <span>GET / POST / PATCH /api/cart/:userId</span>
+              <span>&bull;</span>
+              <span>ClusterIP: cart-service:3003 &bull; DB: MongoDB (:27017)</span>
+            </div>
+            <h2 class="text-xl font-bold text-white mt-1">Shopping Cart Service</h2>
+            <p class="text-xs text-slate-400">Manages stateful per-customer line items, real-time weight aggregation, and subtotal calculation.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btn-empty-cart" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-800 transition">
+              Empty Cart
+            </button>
+            <button id="btn-cart-to-shipping" type="button" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition">
+              Proceed to Shipping &rarr;
+            </button>
+          </div>
+        </div>
+
+        <div id="cart-items-container" class="space-y-3"></div>
+
+        <!-- Cart Summary Footer Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div>
+            <span class="text-xs text-slate-400 block">Customer Session</span>
+            <span id="cart-user-display" class="text-sm font-semibold text-white">usr-1001 (Aarav)</span>
+          </div>
+          <div>
+            <span class="text-xs text-slate-400 block">Total Units</span>
+            <span id="cart-total-qty" class="text-lg font-bold text-white">2 items</span>
+          </div>
+          <div>
+            <span class="text-xs text-slate-400 block">Package Weight</span>
+            <span id="cart-total-weight" class="text-lg font-bold text-amber-300">1.33 kg</span>
+          </div>
+          <div>
+            <span class="text-xs text-slate-400 block">Cart Subtotal</span>
+            <span id="cart-subtotal" class="text-xl font-bold text-emerald-400">$298.00</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 3: SHIPPING & ORDER FULFILLMENT SERVICE -->
+      <section id="view-shipping" class="space-y-5 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <div class="inline-flex items-center gap-2 text-xs font-mono-code text-emerald-400">
+            <span>POST /api/shipping/calculate &amp; /api/shipping/orders</span>
+            <span>&bull;</span>
+            <span>order-service:3005 &amp; shipping-service:3004 &bull; DB: PostgreSQL (:5432)</span>
+          </div>
+          <h2 class="text-xl font-bold text-white mt-1">Shipping Rate Calculator &amp; Order Dispatch</h2>
+          <p class="text-xs text-slate-400">Calculates dynamic carrier tariffs based on cart weight, destination zone, and free-shipping thresholds.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <!-- Shipping Configuration Form -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+            <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-400">1. Delivery &amp; Carrier Options</h3>
+
+            <div>
+              <label for="shipping-region" class="block text-xs font-medium text-slate-300 mb-1">Destination Zone</label>
+              <select id="shipping-region" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none">
+                <option value="IN-Central">Domestic Metro / Central Hub (1.0x Tariff)</option>
+                <option value="Remote">Extended / Remote Pin Code (1.25x Tariff)</option>
+                <option value="Intl">International Air Freight (1.85x Tariff)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1.5">Select Carrier Tier</label>
+              <div class="space-y-2" id="shipping-methods-list">
+                <label class="flex items-center justify-between p-3 rounded-xl border border-sky-600 bg-sky-950/30 cursor-pointer">
+                  <div class="flex items-center gap-2.5">
+                    <input type="radio" name="shippingMethod" value="standard" checked class="text-sky-500" />
+                    <div>
+                      <div class="text-sm font-semibold text-white">Azure Ground Standard</div>
+                      <div class="text-xs text-slate-400">4–6 business days &bull; Free over $250</div>
+                    </div>
+                  </div>
+                  <span class="font-mono-code text-xs text-sky-300">$5.99 + $1.50/kg</span>
+                </label>
+
+                <label class="flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-950/60 hover:border-slate-700 cursor-pointer">
+                  <div class="flex items-center gap-2.5">
+                    <input type="radio" name="shippingMethod" value="express" class="text-sky-500" />
+                    <div>
+                      <div class="text-sm font-semibold text-white">Priority Air Express</div>
+                      <div class="text-xs text-slate-400">1–2 business days &bull; Free over $600</div>
+                    </div>
+                  </div>
+                  <span class="font-mono-code text-xs text-slate-300">$14.99 + $2.75/kg</span>
+                </label>
+
+                <label class="flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-950/60 hover:border-slate-700 cursor-pointer">
+                  <div class="flex items-center gap-2.5">
+                    <input type="radio" name="shippingMethod" value="overnight" class="text-sky-500" />
+                    <div>
+                      <div class="text-sm font-semibold text-white">Next-Day Prime Courier</div>
+                      <div class="text-xs text-slate-400">Next business day &bull; Free over $1,200</div>
+                    </div>
+                  </div>
+                  <span class="font-mono-code text-xs text-slate-300">$29.99 + $4.20/kg</span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label for="shipping-address" class="block text-xs font-medium text-slate-300 mb-1">Delivery Street Address</label>
+              <textarea id="shipping-address" rows="2" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none">42 MG Road, Indore, MP 452001, India</textarea>
+            </div>
+          </div>
+
+          <!-- Live Quote & Order Dispatch Box -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4">
+            <div class="space-y-3">
+              <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-400">2. Live Microservice Quote</h3>
+              <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2.5 text-sm">
+                <div class="flex justify-between text-slate-300">
+                  <span>Items Subtotal:</span>
+                  <span id="quote-subtotal" class="font-mono-code font-medium">$298.00</span>
+                </div>
+                <div class="flex justify-between text-slate-300">
+                  <span>Billable Weight:</span>
+                  <span id="quote-weight" class="font-mono-code">1.33 kg</span>
+                </div>
+                <div class="flex justify-between text-slate-300">
+                  <span>Shipping Tariff (<span id="quote-carrier-label">Azure Ground Standard</span>):</span>
+                  <span id="quote-shipping" class="font-mono-code text-emerald-400">$0.00 (FREE)</span>
+                </div>
+                <div class="flex justify-between text-slate-300">
+                  <span>Estimated GST / Tax (8%):</span>
+                  <span id="quote-tax" class="font-mono-code">$23.84</span>
+                </div>
+                <div class="border-t border-slate-800 pt-2.5 flex justify-between items-baseline">
+                  <span class="font-semibold text-white">Total Payable:</span>
+                  <span id="quote-grand-total" class="text-xl font-bold text-sky-400 font-mono-code">$321.84</span>
+                </div>
+              </div>
+            </div>
+
+            <button id="btn-place-order" type="button" class="w-full py-3 px-4 rounded-xl font-semibold text-sm bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-900/40 transition">
+              Dispatch Order via shipping-service:3004
+            </button>
+          </div>
+        </div>
+
+        <!-- Dispatched Orders & Live Tracking Table -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-white">Active Shipments &amp; Tracking Ledger</h3>
+            <span class="text-xs font-mono-code text-slate-400">GET /api/shipping/track/:trackingId</span>
+          </div>
+          <div id="orders-ledger" class="space-y-2.5"></div>
+        </div>
+      </section>
+
+      <!-- VIEW 4: USER LOGIN / REGISTER SERVICE -->
+      <section id="view-auth" class="space-y-5 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="inline-flex items-center gap-2 text-xs font-mono-code text-amber-400">
+              <span>POST /api/auth/login &amp; /api/auth/register</span>
+              <span>&bull;</span>
+              <span>ClusterIP: user-service:3001 &bull; DB: PostgreSQL (:5432)</span>
+            </div>
+            <h2 class="text-xl font-bold text-white mt-1">User Identity &amp; Authentication Service</h2>
+            <p class="text-xs text-slate-400">Issues bearer session tokens, hashes credentials, and syncs profile state with Cart &amp; Shipping services.</p>
+          </div>
+          <div id="auth-session-badge" class="px-3 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-800 text-xs text-emerald-300 font-mono-code">
+            Authenticated: demo@cloudmart.dev
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <!-- Login Form -->
+          <form id="form-login" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+            <div class="flex items-center justify-between">
+              <h3 class="text-base font-bold text-white">Sign In to Existing Account</h3>
+              <span class="text-xs font-mono-code text-sky-400">POST /api/auth/login</span>
+            </div>
+            <div>
+              <label for="login-email" class="block text-xs font-medium text-slate-300 mb-1">Email Address</label>
+              <input id="login-email" type="email" value="demo@cloudmart.dev" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none" />
+            </div>
+            <div>
+              <label for="login-password" class="block text-xs font-medium text-slate-300 mb-1">Password</label>
+              <input id="login-password" type="password" value="Pass@123" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none" />
+            </div>
+            <button type="submit" class="w-full py-2.5 px-4 rounded-xl text-sm font-semibold bg-sky-600 hover:bg-sky-500 text-white transition">
+              Authenticate via user-service
+            </button>
+          </form>
+
+          <!-- Register Form -->
+          <form id="form-register" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3.5">
+            <div class="flex items-center justify-between">
+              <h3 class="text-base font-bold text-white">Register New Customer</h3>
+              <span class="text-xs font-mono-code text-emerald-400">POST /api/auth/register</span>
+            </div>
+            <div>
+              <label for="reg-name" class="block text-xs font-medium text-slate-300 mb-1">Full Name</label>
+              <input id="reg-name" type="text" placeholder="e.g., Priya Verma" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none" />
+            </div>
+            <div>
+              <label for="reg-email" class="block text-xs font-medium text-slate-300 mb-1">Email Address</label>
+              <input id="reg-email" type="email" placeholder="priya@example.com" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none" />
+            </div>
+            <div>
+              <label for="reg-password" class="block text-xs font-medium text-slate-300 mb-1">Create Password</label>
+              <input id="reg-password" type="password" placeholder="Minimum 6 characters" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none" />
+            </div>
+            <div>
+              <label for="reg-address" class="block text-xs font-medium text-slate-300 mb-1">Default Shipping Address</label>
+              <input id="reg-address" type="text" placeholder="18 Vijay Nagar, Indore, MP" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none" />
+            </div>
+            <button type="submit" class="w-full py-2.5 px-4 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition">
+              Create Account &amp; Issue Token
+            </button>
+          </form>
+        </div>
+
+        <!-- Current Active Session Token Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-2">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Active Session Profile &amp; Bearer Token</h3>
+            <button id="btn-logout" type="button" class="text-xs text-rose-400 hover:text-rose-300 font-medium">Sign Out / Switch to Guest</button>
+          </div>
+          <div id="auth-profile-readout" class="font-mono-code text-xs bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-slate-300 overflow-x-auto"></div>
+        </div>
+      </section>
+
+      <!-- VIEW 5: AKS & DOCKER DEVOPS MANIFEST EXPLORER -->
+      <section id="view-devops" class="space-y-5 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-2">
+          <div class="inline-flex items-center gap-2 text-xs font-mono-code text-amber-300">
+            <span>Azure Kubernetes Service (AKS)</span>
+            <span>&bull;</span>
+            <span>Service Type: LoadBalancer</span>
+            <span>&bull;</span>
+            <span>Docker Compose Ready</span>
+          </div>
+          <h2 class="text-xl font-bold text-white">Kubernetes &amp; Docker Deployment Manifests</h2>
+          <p class="text-xs sm:text-sm text-slate-300">
+            Inspect and copy the exact production manifests included in your downloadable project archive (<code class="text-sky-300 font-mono-code">azure_k8s_ecommerce_bundle.zip</code>), including the Azure Public <code class="text-emerald-300 font-mono-code">type: LoadBalancer</code> configuration and <code class="text-amber-300 font-mono-code">az aks</code> deployment workflow.
+          </p>
+        </div>
+
+        <!-- File Selector Pills -->
+        <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-900 border border-slate-800 rounded-xl p-3">
+          <div class="flex flex-wrap gap-1.5" id="manifest-tabs">
+            <button type="button" data-doc="lb" class="manifest-btn px-3 py-1.5 rounded-lg text-xs font-mono-code bg-sky-600 text-white">service.yaml</button>
+            <button type="button" data-doc="microservices" class="manifest-btn px-3 py-1.5 rounded-lg text-xs font-mono-code bg-slate-800 text-slate-300 hover:bg-slate-700">deployment.yaml</button>
+            <button type="button" data-doc="lb" class="manifest-btn px-3 py-1.5 rounded-lg text-xs font-mono-code bg-slate-800 text-slate-300 hover:bg-slate-700">k8s/05-frontend-loadbalancer.yaml</button>
+            <button type="button" data-doc="microservices" class="manifest-btn px-3 py-1.5 rounded-lg text-xs font-mono-code bg-slate-800 text-slate-300 hover:bg-slate-700">k8s/01..04-services.yaml</button>
+            <button type="button" data-doc="nginx" class="manifest-btn px-3 py-1.5 rounded-lg text-xs font-mono-code bg-slate-800 text-slate-300 hover:bg-slate-700">frontend/nginx.conf</button>
+            <button type="button" data-doc="compose" class="manifest-btn px-3 py-1.5 rounded-lg text-xs font-mono-code bg-slate-800 text-slate-300 hover:bg-slate-700">docker-compose.yml</button>
+            <button type="button" data-doc="aks-script" class="manifest-btn px-3 py-1.5 rounded-lg text-xs font-mono-code bg-slate-800 text-slate-300 hover:bg-slate-700">deploy-aks.sh</button>
+          </div>
+          <button id="btn-copy-manifest" type="button" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition">
+            Copy Manifest
+          </button>
+        </div>
+
+        <pre id="manifest-code-viewer" class="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-xs font-mono-code text-slate-200 overflow-x-auto leading-relaxed max-h-[480px] overflow-y-auto"></pre>
+      </section>
+
+    </div>
+
+    <!-- Right Column: Live AKS LoadBalancer Topology & Request Trace Log (4 cols on lg) -->
+    <aside class="lg:col-span-4 space-y-5">
+
+      <!-- Topology Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3.5">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-bold text-white">Azure LoadBalancer Topology</h3>
+            <p class="text-[11px] text-slate-400">Live Round-Robin Pod Distribution</p>
+          </div>
+          <span class="text-[11px] font-mono-code px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/30">
+            namespace: cloudmart-ecommerce
+          </span>
+        </div>
+
+        <!-- Ingress Box -->
+        <div class="bg-slate-950 border border-sky-800/70 rounded-xl p-3 space-y-1.5">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-semibold text-sky-300">Azure Public LoadBalancer</span>
+            <span class="font-mono-code text-[11px] text-emerald-400">TCP :80 &rarr; :80</span>
+          </div>
+          <div class="font-mono-code text-[11px] text-slate-400">
+            Probe: <span class="text-slate-200">GET /healthz (10s interval)</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] font-mono-code pt-1 border-t border-slate-800/80">
+            <span class="text-slate-400">Total Requests Routed:</span>
+            <span id="metric-total-reqs" class="text-white font-bold">1</span>
+          </div>
+        </div>
+
+        <!-- 4 Backend Microservice Cards -->
+        <div class="space-y-2" id="cluster-services-list">
+          <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+            <div>
+              <div class="font-semibold text-white font-mono-code">user-service:3001</div>
+              <div class="text-[11px] text-slate-400">2 replicas &bull; PostgreSQL</div>
+            </div>
+            <span id="hits-user" class="font-mono-code px-2 py-0.5 rounded bg-slate-900 text-amber-300 border border-slate-800">0 hits</span>
+          </div>
+
+          <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+            <div>
+              <div class="font-semibold text-white font-mono-code">catalogue-service:3002</div>
+              <div class="text-[11px] text-slate-400">2 replicas &bull; MongoDB</div>
+            </div>
+            <span id="hits-catalogue" class="font-mono-code px-2 py-0.5 rounded bg-slate-900 text-sky-300 border border-slate-800">1 hit</span>
+          </div>
+
+          <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+            <div>
+              <div class="font-semibold text-white font-mono-code">cart-service:3003</div>
+              <div class="text-[11px] text-slate-400">2 replicas &bull; MongoDB</div>
+            </div>
+            <span id="hits-cart" class="font-mono-code px-2 py-0.5 rounded bg-slate-900 text-indigo-300 border border-slate-800">0 hits</span>
+          </div>
+
+          <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+            <div>
+              <div class="font-semibold text-white font-mono-code">shipping-service:3004</div>
+              <div class="text-[11px] text-slate-400">2 replicas &bull; PostgreSQL</div>
+            </div>
+            <span id="hits-shipping" class="font-mono-code px-2 py-0.5 rounded bg-slate-900 text-emerald-300 border border-slate-800">0 hits</span>
+          </div>
+
+          <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+            <div>
+              <div class="font-semibold text-white font-mono-code">order-service:3005</div>
+              <div class="text-[11px] text-slate-400">2 replicas &bull; PostgreSQL</div>
+            </div>
+            <span id="hits-order" class="font-mono-code px-2 py-0.5 rounded bg-slate-900 text-purple-300 border border-slate-800">0 hits</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <div class="p-2 rounded-lg bg-indigo-950/40 border border-indigo-800/60 text-[11px] font-mono-code">
+              <div class="text-indigo-300 font-semibold">postgres-db:5432</div>
+              <div class="text-slate-400">Users, Orders, Ship</div>
+            </div>
+            <div class="p-2 rounded-lg bg-emerald-950/40 border border-emerald-800/60 text-[11px] font-mono-code">
+              <div class="text-emerald-300 font-semibold">mongo-db:27017</div>
+              <div class="text-slate-400">Catalogue &amp; Cart</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Microservice API Trace Console -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-bold text-white">Ingress &rarr; Pod Request Trace</h3>
+          <button id="btn-clear-logs" type="button" class="text-[11px] text-slate-400 hover:text-white">Clear Log</button>
+        </div>
+        <div id="api-trace-log" class="space-y-2 max-h-80 overflow-y-auto font-mono-code text-[11px]"></div>
+      </div>
+
+    </aside>
+  </main>
+
+  <!-- Toast Notification Banner -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2 max-w-sm"></div>
+
+  <script>
+    // =========================================================================
+    // In-Memory Microservices State & AKS LoadBalancer Simulator
+    // =========================================================================
+    const GATEWAY_PODS = [
+      'frontend-gateway-7d9c4b-x2k9p',
+      'frontend-gateway-7d9c4b-m8v4q',
+      'frontend-gateway-7d9c4b-z5n1r'
+    ];
+
+    const BACKEND_PODS = {
+      user: ['user-service-6b8f9c-p1a2', 'user-service-6b8f9c-q9z8'],
+      catalogue: ['catalogue-service-5f4d2a-k4m1', 'catalogue-service-5f4d2a-w7e3'],
+      cart: ['cart-service-8c2e1b-r3t6', 'cart-service-8c2e1b-y5u8'],
+      shipping: ['shipping-service-9a4c7d-j2h5', 'shipping-service-9a4c7d-n6b4'],
+      order: ['order-service-4d7e3f-v8k2', 'order-service-4d7e3f-b5m9']
+    };
+
+    const PRODUCTS = [
+      {
+        id: 'prd-101',
+        sku: 'AZ-MECH-K8',
+        name: 'CloudForge Wireless Mechanical Keyboard',
+        category: 'Peripherals',
+        price: 119.00,
+        weightKg: 0.95,
+        stock: 42,
+        rating: 4.8,
+        badge: 'Best Seller',
+        description: 'Hot-swappable tactile switches, CNC aluminum frame, tri-mode Bluetooth 5.3 & 2.4GHz wireless.'
+      },
+      {
+        id: 'prd-102',
+        sku: 'AZ-MON-27',
+        name: 'ProView 27" 4K USB-C Hub Monitor',
+        category: 'Displays',
+        price: 389.00,
+        weightKg: 5.40,
+        stock: 18,
+        rating: 4.9,
+        badge: 'AKS Pick',
+        description: 'IPS Black panel with 90W USB-C power delivery, integrated RJ45 Ethernet, and KVM switch.'
+      },
+      {
+        id: 'prd-103',
+        sku: 'AZ-ANC-HP',
+        name: 'AetherPods Studio ANC Headphones',
+        category: 'Audio',
+        price: 179.00,
+        weightKg: 0.38,
+        stock: 64,
+        rating: 4.7,
+        badge: 'Fast Ship',
+        description: 'Hybrid 42dB active noise cancellation, 45-hour battery life, multipoint low-latency audio.'
+      },
+      {
+        id: 'prd-104',
+        sku: 'AZ-DOCK-TB4',
+        name: 'ThunderDock 12-in-1 Thunderbolt 4 Station',
+        category: 'Accessories',
+        price: 215.00,
+        weightKg: 0.68,
+        stock: 29,
+        rating: 4.6,
+        badge: 'New',
+        description: 'Dual 4K@60Hz display output, 2.5GbE LAN, UHS-II SD 4.0 slot, and 100W upstream charging.'
+      },
+      {
+        id: 'prd-105',
+        sku: 'AZ-NVME-2T',
+        name: 'VelocityDrive 2TB USB4 Portable NVMe SSD',
+        category: 'Storage',
+        price: 159.00,
+        weightKg: 0.18,
+        stock: 85,
+        rating: 4.9,
+        badge: 'Top Rated',
+        description: 'Sustained 3,800 MB/s read/write speeds, IP67 ruggedized enclosure, hardware AES-256 encryption.'
+      },
+      {
+        id: 'prd-106',
+        sku: 'AZ-CAM-4K',
+        name: 'OptiStream 4K AI Developer Webcam',
+        category: 'Peripherals',
+        price: 129.00,
+        weightKg: 0.31,
+        stock: 37,
+        rating: 4.5,
+        badge: 'In Stock',
+        description: 'Sony STARVIS 1/2.8" CMOS sensor, HDR60, dual beamforming mics, magnetic privacy shutter.'
+      }
+    ];
+
+    const SHIPPING_METHODS = {
+      standard: { id: 'standard', name: 'Azure Ground Standard', baseFee: 5.99, perKgFee: 1.50, freeOver: 250, etaDays: '4-6 business days' },
+      express: { id: 'express', name: 'Priority Air Express', baseFee: 14.99, perKgFee: 2.75, freeOver: 600, etaDays: '1-2 business days' },
+      overnight: { id: 'overnight', name: 'Next-Day Prime Courier', baseFee: 29.99, perKgFee: 4.20, freeOver: 1200, etaDays: 'Next business day' }
+    };
+
+    const MANIFEST_DOCS = {
+      lb: `# service.yaml — Exposes Frontend via LoadBalancer + ClusterIPs for 5 Microservices & DBs
+# Deploys Nginx Frontend Gateway + Azure Public Standard LoadBalancer
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-gateway
+  namespace: cloudmart-ecommerce
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: frontend-gateway
+  template:
+    metadata:
+      labels:
+        app: frontend-gateway
+    spec:
+      containers:
+        - name: frontend-gateway
+          image: \${ACR_LOGIN_SERVER}/cloudmart/frontend-gateway:v1.0.0
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudmart-public-lb
+  namespace: cloudmart-ecommerce
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+    service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/healthz"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: frontend-gateway
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80`,
+
+      microservices: `# deployment.yaml — 5 Microservices + PostgreSQL (SQL) + MongoDB (NoSQL)
+# Internal Kubernetes ClusterIP Services + 2-Replica Deployments
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalogue-service
+  namespace: cloudmart-ecommerce
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: catalogue-service
+  template:
+    metadata:
+      labels:
+        app: catalogue-service
+    spec:
+      containers:
+        - name: catalogue-service
+          image: \${ACR_LOGIN_SERVER}/cloudmart/catalogue-service:v1.0.0
+          ports:
+            - containerPort: 3002
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalogue-service
+  namespace: cloudmart-ecommerce
+spec:
+  type: ClusterIP
+  selector:
+    app: catalogue-service
+  ports:
+    - port: 3002
+      targetPort: 3002
+# (Same pattern applied for user-service:3001, cart-service:3003, shipping-service:3004)`,
+
+      nginx: `# frontend/nginx.conf
+# Routes public LoadBalancer traffic to internal Kubernetes ClusterIP services
+server {
+    listen 80;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location = /healthz {
+        return 200 '{"status":"HEALTHY","component":"frontend-gateway"}';
+    }
+
+    location /api/auth/      { proxy_pass http://user-service:3001/api/auth/; }
+    location /api/catalogue/ { proxy_pass http://catalogue-service:3002/api/catalogue/; }
+    location /api/cart/      { proxy_pass http://cart-service:3003/api/cart/; }
+    location /api/shipping/  { proxy_pass http://shipping-service:3004/api/shipping/; }
+}`,
+
+      compose: `# docker-compose.yml — Local Multi-Container Verification
+services:
+  user-service:
+    build: ./user-service
+    ports: ["3001:3001"]
+  catalogue-service:
+    build: ./catalogue-service
+    ports: ["3002:3002"]
+  cart-service:
+    build: ./cart-service
+    ports: ["3003:3003"]
+  shipping-service:
+    build: ./shipping-service
+    ports: ["3004:3004"]
+  frontend-gateway:
+    build: ./frontend
+    ports: ["8080:80"]
+    depends_on:
+      - user-service
+      - catalogue-service
+      - cart-service
+      - shipping-service`,
+
+      'aks-script': `#!/usr/bin/env bash
+# deploy-aks.sh — Provision ACR + AKS with Standard LoadBalancer
+az group create --name rg-cloudmart-aks --location centralindia
+az acr create --resource-group rg-cloudmart-aks --name acrcloudmart01 --sku Basic
+export ACR_LOGIN_SERVER=$(az acr show --name acrcloudmart01 --query loginServer -o tsv)
+az acr login --name acrcloudmart01
+
+for svc in user-service catalogue-service cart-service shipping-service; do
+  docker build -t "$ACR_LOGIN_SERVER/cloudmart/$svc:v1.0.0" "./$svc"
+  docker push "$ACR_LOGIN_SERVER/cloudmart/$svc:v1.0.0"
+done
+docker build -t "$ACR_LOGIN_SERVER/cloudmart/frontend-gateway:v1.0.0" ./frontend
+docker push "$ACR_LOGIN_SERVER/cloudmart/frontend-gateway:v1.0.0"
+
+az aks create \\
+  --resource-group rg-cloudmart-aks \\
+  --name aks-cloudmart-cluster \\
+  --node-count 2 \\
+  --load-balancer-sku standard \\
+  --attach-acr acrcloudmart01 \\
+  --generate-ssh-keys
+
+az aks get-credentials --resource-group rg-cloudmart-aks --name aks-cloudmart-cluster
+for f in k8s/0*.yaml; do envsubst < "$f" | kubectl apply -f -; done
+kubectl get svc cloudmart-public-lb -n cloudmart-ecommerce -w`
+    };
+
+    const state = {
+      activeTab: 'catalogue',
+      selectedCategory: 'All',
+      searchQuery: '',
+      activeDoc: 'lb',
+      gatewayIdx: 0,
+      podIndices: { user: 0, catalogue: 0, cart: 0, shipping: 0, order: 0 },
+      serviceHits: { user: 0, catalogue: 1, cart: 0, shipping: 0, order: 0 },
+      totalRequests: 1,
+      users: [
+        {
+          id: 'usr-1001',
+          name: 'Aarav Sharma',
+          email: 'demo@cloudmart.dev',
+          password: 'Pass@123',
+          address: '42 MG Road, Indore, MP 452001, India',
+          token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.aks-demo-9f81c2'
+        }
+      ],
+      currentUser: null,
+      cart: [
+        { productId: 'prd-101', name: 'CloudForge Wireless Mechanical Keyboard', price: 119.00, weightKg: 0.95, quantity: 1 },
+        { productId: 'prd-103', name: 'AetherPods Studio ANC Headphones', price: 179.00, weightKg: 0.38, quantity: 1 }
+      ],
+      shippingRegion: 'IN-Central',
+      shippingMethod: 'standard',
+      orders: [
+        {
+          orderId: 'ORD-48210',
+          trackingId: 'AKS-TRK-739201',
+          customerName: 'Aarav Sharma',
+          address: '42 MG Road, Indore, MP 452001, India',
+          carrierName: 'Azure Ground Standard',
+          etaDays: '4-6 business days',
+          grandTotal: 321.84,
+          status: 'IN_TRANSIT_CENTRAL_HUB',
+          pod: 'shipping-service-9a4c7d-j2h5',
+          createdAt: '2026-11-12 10:15 IST'
+        }
+      ],
+      logs: []
+    };
+
+    state.currentUser = state.users[0];
+
+    // =========================================================================
+    // Helper: Route Request Through Simulated Azure LoadBalancer + Pod Replica
+    // =========================================================================
+    function recordMicroserviceCall(serviceKey, method, endpoint, statusCode, summaryText) {
+      state.gatewayIdx = (state.gatewayIdx + 1) % GATEWAY_PODS.length;
+      const gatewayPod = GATEWAY_PODS[state.gatewayIdx];
+
+      const pods = BACKEND_PODS[serviceKey];
+      state.podIndices[serviceKey] = (state.podIndices[serviceKey] + 1) % pods.length;
+      const targetPod = pods[state.podIndices[serviceKey]];
+
+      state.serviceHits[serviceKey] += 1;
+      state.totalRequests += 1;
+
+      const portMap = { user: 3001, catalogue: 3002, cart: 3003, shipping: 3004, order: 3005 };
+      const port = portMap[serviceKey];
+
+      document.getElementById('active-gateway-pod').textContent = gatewayPod;
+      document.getElementById('last-routed-pill').textContent = `${serviceKey}-service:${port} (${targetPod.slice(-4)})`;
+      document.getElementById('metric-total-reqs').textContent = String(state.totalRequests);
+
+      document.getElementById('hits-user').textContent = `${state.serviceHits.user} hit${state.serviceHits.user === 1 ? '' : 's'}`;
+      document.getElementById('hits-catalogue').textContent = `${state.serviceHits.catalogue} hit${state.serviceHits.catalogue === 1 ? '' : 's'}`;
+      document.getElementById('hits-cart').textContent = `${state.serviceHits.cart} hit${state.serviceHits.cart === 1 ? '' : 's'}`;
+      document.getElementById('hits-shipping').textContent = `${state.serviceHits.shipping} hit${state.serviceHits.shipping === 1 ? '' : 's'}`;
+      const hitsOrderEl = document.getElementById('hits-order');
+      if (hitsOrderEl) hitsOrderEl.textContent = `${state.serviceHits.order} hit${state.serviceHits.order === 1 ? '' : 's'}`;
+
+      const timeStr = new Date().toLocaleTimeString([], { hour12: false });
+      state.logs.unshift({
+        timeStr,
+        method,
+        endpoint,
+        statusCode,
+        gatewayPod,
+        targetPod,
+        summaryText
+      });
+      if (state.logs.length > 25) state.logs.pop();
+      renderTraceLogs();
+    }
+
+    function renderTraceLogs() {
+      const container = document.getElementById('api-trace-log');
+      if (!state.logs.length) {
+        container.innerHTML = '<div class="text-slate-500 py-4 text-center">No recent API traces. Click any store action.</div>';
+        return;
+      }
+      container.innerHTML = state.logs.map(item => `
+        <div class="p-2 rounded-lg bg-slate-950 border border-slate-800/90 space-y-1">
+          <div class="flex items-center justify-between">
+            <span class="text-sky-400 font-semibold">${item.method} ${item.endpoint}</span>
+            <span class="px-1.5 py-0.2 rounded text-[10px] ${item.statusCode < 300 ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}">HTTP ${item.statusCode}</span>
+          </div>
+          <div class="text-slate-400 text-[10px]">
+            LB &rarr; <span class="text-amber-300">${item.gatewayPod.slice(-5)}</span> &rarr; <span class="text-indigo-300">${item.targetPod}</span>
+          </div>
+          <div class="text-slate-300 text-[10px] flex justify-between">
+            <span>${item.summaryText}</span>
+            <span class="text-slate-500">${item.timeStr}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function showToast(message, tone = 'sky') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      const borderColors = {
+        sky: 'border-sky-600 bg-slate-900 text-sky-200',
+        emerald: 'border-emerald-600 bg-slate-900 text-emerald-200',
+        rose: 'border-rose-600 bg-slate-900 text-rose-200'
+      };
+      toast.className = `px-4 py-2.5 rounded-xl border shadow-xl text-xs font-medium transition ${borderColors[tone] || borderColors.sky}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.remove();
+      }, 3200);
+    }
+
+    // =========================================================================
+    // View Switching
+    // =========================================================================
+    function switchTab(tabName) {
+      state.activeTab = tabName;
+      const views = ['catalogue', 'cart', 'shipping', 'auth', 'devops'];
+      views.forEach(v => {
+        const el = document.getElementById(`view-${v}`);
+        if (el) el.classList.toggle('hidden', v !== tabName);
+      });
+      document.querySelectorAll('.nav-tab').forEach(btn => {
+        const isCurrent = btn.getAttribute('data-nav') === tabName;
+        btn.className = isCurrent
+          ? 'nav-tab px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition bg-sky-600 text-white flex items-center gap-1.5'
+          : 'nav-tab px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition text-slate-300 hover:text-white hover:bg-slate-800/60 flex items-center gap-1.5';
+      });
+    }
+
+    // =========================================================================
+    // 1. Catalogue Rendering & Filtering
+    // =========================================================================
+    function renderCatalogue() {
+      const grid = document.getElementById('catalogue-grid');
+      const q = state.searchQuery.trim().toLowerCase();
+      const filtered = PRODUCTS.filter(p => {
+        const matchesCat = state.selectedCategory === 'All' || p.category === state.selectedCategory;
+        const matchesQuery = !q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
+        return matchesCat && matchesQuery;
+      });
+
+      if (!filtered.length) {
+        grid.innerHTML = `
+          <div class="col-span-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-2">
+            <div class="text-base font-semibold text-white">No matching products in catalogue-service</div>
+            <p class="text-xs text-slate-400">Try clearing your search filter or switching category tabs.</p>
+          </div>
+        `;
+        return;
+      }
+
+      grid.innerHTML = filtered.map(p => `
+        <article class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 flex flex-col justify-between gap-4 transition">
+          <div class="space-y-2.5">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-[11px] font-mono-code px-2 py-0.5 rounded bg-slate-800 text-slate-300">${p.category} &bull; ${p.sku}</span>
+              <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30">${p.badge}</span>
+            </div>
+            <h3 class="text-base font-bold text-white leading-snug">${p.name}</h3>
+            <p class="text-xs text-slate-400 leading-relaxed">${p.description}</p>
+          </div>
+          <div class="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
+            <div>
+              <div class="text-lg font-bold text-white font-mono-code">$${p.price.toFixed(2)}</div>
+              <div class="text-[11px] text-slate-400">${p.weightKg} kg &bull; ${p.stock} in stock &bull; ★ ${p.rating}</div>
+            </div>
+            <button
+              type="button"
+              data-add-id="${p.id}"
+              class="btn-add-cart px-3.5 py-2 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition"
+            >
+              + Add to Cart
+            </button>
+          </div>
+        </article>
+      `).join('');
+
+      grid.querySelectorAll('.btn-add-cart').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const prodId = btn.getAttribute('data-add-id');
+          addToCart(prodId);
+        });
+      });
+    }
+
+    // =========================================================================
+    // 2. Cart Operations
+    // =========================================================================
+    function getCartMetrics() {
+      const subtotal = Number(state.cart.reduce((sum, i) => sum + i.price * i.quantity, 0).toFixed(2));
+      const totalWeightKg = Number(state.cart.reduce((sum, i) => sum + i.weightKg * i.quantity, 0).toFixed(2));
+      const totalQty = state.cart.reduce((sum, i) => sum + i.quantity, 0);
+      return { subtotal, totalWeightKg, totalQty };
+    }
+
+    function addToCart(productId) {
+      const product = PRODUCTS.find(p => p.id === productId);
+      if (!product) return;
+      const existing = state.cart.find(i => i.productId === productId);
+      if (existing) {
+        existing.quantity += 1;
+      } else {
+        state.cart.push({
+          productId: product.id,
+          name: product.name,
+          price: product.price,
+          weightKg: product.weightKg,
+          quantity: 1
+        });
+      }
+      const userId = state.currentUser ? state.currentUser.id : 'guest';
+      recordMicroserviceCall('cart', 'POST', `/api/cart/${userId}/items`, 201, `Added 1x ${product.sku} to cart`);
+      renderCartAndShipping();
+      showToast(`Added "${product.name}" via cart-service:3003`, 'emerald');
+    }
+
+    function updateCartItemQty(productId, delta) {
+      const item = state.cart.find(i => i.productId === productId);
+      if (!item) return;
+      item.quantity += delta;
+      if (item.quantity <= 0) {
+        state.cart = state.cart.filter(i => i.productId !== productId);
+      }
+      const userId = state.currentUser ? state.currentUser.id : 'guest';
+      recordMicroserviceCall('cart', 'PATCH', `/api/cart/${userId}/items/${productId}`, 200, `Updated item quantity`);
+      renderCartAndShipping();
+    }
+
+    function renderCartAndShipping() {
+      const { subtotal, totalWeightKg, totalQty } = getCartMetrics();
+      document.getElementById('nav-cart-badge').textContent = String(totalQty);
+      document.getElementById('cart-total-qty').textContent = `${totalQty} item${totalQty === 1 ? '' : 's'}`;
+      document.getElementById('cart-total-weight').textContent = `${totalWeightKg.toFixed(2)} kg`;
+      document.getElementById('cart-subtotal').textContent = `$${subtotal.toFixed(2)}`;
+      document.getElementById('cart-user-display').textContent = state.currentUser
+        ? `${state.currentUser.id} (${state.currentUser.name})`
+        : 'guest-session';
+
+      const container = document.getElementById('cart-items-container');
+      if (!state.cart.length) {
+        container.innerHTML = `
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-2">
+            <div class="text-base font-semibold text-white">Your cart in cart-service:3003 is empty</div>
+            <p class="text-xs text-slate-400">Add hardware from the Catalogue tab to test cart state and shipping rate calculation.</p>
+          </div>
+        `;
+      } else {
+        container.innerHTML = state.cart.map(item => `
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div class="text-sm font-bold text-white">${item.name}</div>
+              <div class="text-xs text-slate-400 font-mono-code">$${item.price.toFixed(2)} each &bull; ${item.weightKg} kg/unit</div>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="inline-flex items-center bg-slate-950 border border-slate-800 rounded-lg">
+                <button type="button" data-qty-id="${item.productId}" data-delta="-1" class="btn-qty px-2.5 py-1 text-slate-300 hover:text-white">-</button>
+                <span class="px-3 py-1 text-xs font-mono-code font-bold text-white">${item.quantity}</span>
+                <button type="button" data-qty-id="${item.productId}" data-delta="1" class="btn-qty px-2.5 py-1 text-slate-300 hover:text-white">+</button>
+              </div>
+              <div class="text-sm font-mono-code font-bold text-white w-20 text-right">
+                $${(item.price * item.quantity).toFixed(2)}
+              </div>
+            </div>
+          </div>
+        `).join('');
+
+        container.querySelectorAll('.btn-qty').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-qty-id');
+            const delta = Number(btn.getAttribute('data-delta'));
+            updateCartItemQty(id, delta);
+          });
+        });
+      }
+
+      // Compute Shipping Quote via shipping-service rules
+      const method = SHIPPING_METHODS[state.shippingMethod] || SHIPPING_METHODS.standard;
+      const mult = state.shippingRegion === 'Intl' ? 1.85 : (state.shippingRegion === 'Remote' ? 1.25 : 1.0);
+      let shippingFee = 0;
+      if (subtotal > 0 && subtotal < method.freeOver) {
+        shippingFee = Number(((method.baseFee + totalWeightKg * method.perKgFee) * mult).toFixed(2));
+      }
+      const tax = Number((subtotal * 0.08).toFixed(2));
+      const grandTotal = Number((subtotal + shippingFee + tax).toFixed(2));
+
+      document.getElementById('quote-subtotal').textContent = `$${subtotal.toFixed(2)}`;
+      document.getElementById('quote-weight').textContent = `${totalWeightKg.toFixed(2)} kg`;
+      document.getElementById('quote-carrier-label').textContent = method.name;
+      document.getElementById('quote-shipping').textContent = shippingFee === 0 && subtotal > 0
+        ? '$0.00 (FREE THRESHOLD MET)'
+        : `$${shippingFee.toFixed(2)}`;
+      document.getElementById('quote-tax').textContent = `$${tax.toFixed(2)}`;
+      document.getElementById('quote-grand-total').textContent = `$${grandTotal.toFixed(2)}`;
+    }
+
+    // =========================================================================
+    // 3. Shipping & Order Dispatch
+    // =========================================================================
+    function renderOrdersLedger() {
+      const ledger = document.getElementById('orders-ledger');
+      if (!state.orders.length) {
+        ledger.innerHTML = '<div class="text-xs text-slate-400">No orders dispatched yet.</div>';
+        return;
+      }
+      ledger.innerHTML = state.orders.map(o => `
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div class="space-y-0.5">
+            <div class="flex items-center gap-2">
+              <span class="font-mono-code font-bold text-sky-400">${o.trackingId}</span>
+              <span class="text-slate-400">(${o.orderId})</span>
+              <span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono-code text-[10px]">${o.status}</span>
+            </div>
+            <div class="text-slate-300">${o.customerName} &bull; ${o.address}</div>
+            <div class="text-slate-500 font-mono-code">Carrier: ${o.carrierName} (${o.etaDays}) &bull; Handled by ${o.pod}</div>
+          </div>
+          <div class="text-right font-mono-code">
+            <div class="text-sm font-bold text-white">$${o.grandTotal.toFixed(2)}</div>
+            <div class="text-[11px] text-slate-400">${o.createdAt}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // =========================================================================
+    // 4. User Auth & Session Management
+    // =========================================================================
+    function renderAuthProfile() {
+      const badge = document.getElementById('auth-session-badge');
+      const navLabel = document.getElementById('nav-auth-label');
+      const readout = document.getElementById('auth-profile-readout');
+
+      if (state.currentUser) {
+        badge.textContent = `Authenticated: ${state.currentUser.email}`;
+        badge.className = 'px-3 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-800 text-xs text-emerald-300 font-mono-code';
+        navLabel.textContent = `Account (${state.currentUser.name.split(' ')[0]})`;
+        readout.textContent = JSON.stringify({
+          service: 'user-service:3001',
+          authenticated: true,
+          userId: state.currentUser.id,
+          name: state.currentUser.name,
+          email: state.currentUser.email,
+          address: state.currentUser.address,
+          bearerToken: state.currentUser.token
+        }, null, 2);
+      } else {
+        badge.textContent = 'Guest Session (Unauthenticated)';
+        badge.className = 'px-3 py-1.5 rounded-xl bg-amber-950/80 border border-amber-800 text-xs text-amber-300 font-mono-code';
+        navLabel.textContent = 'Login / Register';
+        readout.textContent = JSON.stringify({
+          service: 'user-service:3001',
+          authenticated: false,
+          note: 'Sign in or register above to issue a bearer token.'
+        }, null, 2);
+      }
+    }
+
+    // =========================================================================
+    // 5. DevOps Manifest Viewer
+    // =========================================================================
+    function renderManifestViewer() {
+      const viewer = document.getElementById('manifest-code-viewer');
+      viewer.textContent = MANIFEST_DOCS[state.activeDoc] || '';
+      document.querySelectorAll('.manifest-btn').forEach(btn => {
+        const isCurrent = btn.getAttribute('data-doc') === state.activeDoc;
+        btn.className = isCurrent
+          ? 'manifest-btn px-3 py-1.5 rounded-lg text-xs font-mono-code bg-sky-600 text-white'
+          : 'manifest-btn px-3 py-1.5 rounded-lg text-xs font-mono-code bg-slate-800 text-slate-300 hover:bg-slate-700';
+      });
+    }
+
+    // =========================================================================
+    // Event Listeners Setup
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      // Initial Log Entry
+      recordMicroserviceCall('catalogue', 'GET', '/api/catalogue/products', 200, 'Loaded 6 products from AKS replica');
+
+      // Nav tabs
+      document.querySelectorAll('.nav-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          switchTab(btn.getAttribute('data-nav'));
+        });
+      });
+
+      // Catalogue search & category filter
+      const searchInput = document.getElementById('catalogue-search');
+      searchInput.addEventListener('input', () => {
+        state.searchQuery = searchInput.value;
+        recordMicroserviceCall('catalogue', 'GET', `/api/catalogue/products?q=${encodeURIComponent(state.searchQuery)}`, 200, 'Filtered catalogue query');
+        renderCatalogue();
+      });
+
+      document.getElementById('btn-clear-search').addEventListener('click', () => {
+        state.searchQuery = '';
+        searchInput.value = '';
+        state.selectedCategory = 'All';
+        document.querySelectorAll('.cat-btn').forEach(b => {
+          b.className = b.getAttribute('data-cat') === 'All'
+            ? 'cat-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-600 text-white'
+            : 'cat-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700';
+        });
+        recordMicroserviceCall('catalogue', 'GET', '/api/catalogue/products', 200, 'Reset catalogue filters');
+        renderCatalogue();
+      });
+
+      document.querySelectorAll('.cat-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.selectedCategory = btn.getAttribute('data-cat');
+          document.querySelectorAll('.cat-btn').forEach(b => {
+            b.className = b.getAttribute('data-cat') === state.selectedCategory
+              ? 'cat-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-600 text-white'
+              : 'cat-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700';
+          });
+          recordMicroserviceCall('catalogue', 'GET', `/api/catalogue/products?category=${state.selectedCategory}`, 200, `Category=${state.selectedCategory}`);
+          renderCatalogue();
+        });
+      });
+
+      // Cart buttons
+      document.getElementById('btn-empty-cart').addEventListener('click', () => {
+        state.cart = [];
+        const userId = state.currentUser ? state.currentUser.id : 'guest';
+        recordMicroserviceCall('cart', 'DELETE', `/api/cart/${userId}`, 200, 'Cleared customer cart');
+        renderCartAndShipping();
+        showToast('Cart emptied on cart-service:3003', 'rose');
+      });
+
+      document.getElementById('btn-cart-to-shipping').addEventListener('click', () => {
+        switchTab('shipping');
+      });
+
+      // Shipping controls
+      document.getElementById('shipping-region').addEventListener('change', (e) => {
+        state.shippingRegion = e.target.value;
+        recordMicroserviceCall('shipping', 'POST', '/api/shipping/calculate', 200, `Recalculated rate for zone ${state.shippingRegion}`);
+        renderCartAndShipping();
+      });
+
+      document.querySelectorAll('input[name="shippingMethod"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+          state.shippingMethod = e.target.value;
+          recordMicroserviceCall('shipping', 'POST', '/api/shipping/calculate', 200, `Selected carrier ${state.shippingMethod}`);
+          renderCartAndShipping();
+        });
+      });
+
+      document.getElementById('btn-place-order').addEventListener('click', () => {
+        const { subtotal, totalWeightKg } = getCartMetrics();
+        if (!state.cart.length || subtotal <= 0) {
+          showToast('Add at least one item to your cart before dispatching an order.', 'rose');
+          switchTab('catalogue');
+          return;
+        }
+        const address = document.getElementById('shipping-address').value.trim() || 'Indore, MP, India';
+        const method = SHIPPING_METHODS[state.shippingMethod] || SHIPPING_METHODS.standard;
+        const mult = state.shippingRegion === 'Intl' ? 1.85 : (state.shippingRegion === 'Remote' ? 1.25 : 1.0);
+        const shippingFee = subtotal < method.freeOver ? Number(((method.baseFee + totalWeightKg * method.perKgFee) * mult).toFixed(2)) : 0;
+        const grandTotal = Number((subtotal + shippingFee + subtotal * 0.08).toFixed(2));
+
+        const trackingId = 'AKS-TRK-' + Math.floor(100000 + Math.random() * 900000);
+        const orderId = 'ORD-' + Math.floor(10000 + Math.random() * 90000);
+        const targetPod = BACKEND_PODS.shipping[(state.podIndices.shipping + 1) % BACKEND_PODS.shipping.length];
+
+        state.orders.unshift({
+          orderId,
+          trackingId,
+          customerName: state.currentUser ? state.currentUser.name : 'Guest Customer',
+          address,
+          carrierName: method.name,
+          etaDays: method.etaDays,
+          grandTotal,
+          status: 'DISPATCHED_FROM_FULFILLMENT_HUB',
+          pod: targetPod,
+          createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        });
+
+        recordMicroserviceCall('order', 'POST', '/api/orders', 201, `Saved ${orderId} to PostgreSQL`);
+        recordMicroserviceCall('shipping', 'POST', '/api/shipping/orders', 201, `Dispatched ${trackingId} via PostgreSQL`);
+        state.cart = [];
+        renderCartAndShipping();
+        renderOrdersLedger();
+        showToast(`Order ${orderId} dispatched! Tracking ID: ${trackingId}`, 'emerald');
+      });
+
+      // Auth forms
+      document.getElementById('form-login').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const email = document.getElementById('login-email').value.trim().toLowerCase();
+        const password = document.getElementById('login-password').value;
+        const found = state.users.find(u => u.email.toLowerCase() === email && u.password === password);
+        if (!found) {
+          recordMicroserviceCall('user', 'POST', '/api/auth/login', 401, `Failed login for ${email}`);
+          showToast('Invalid credentials. Use demo@cloudmart.dev / Pass@123 or register a new user.', 'rose');
+          return;
+        }
+        state.currentUser = found;
+        document.getElementById('shipping-address').value = found.address;
+        recordMicroserviceCall('user', 'POST', '/api/auth/login', 200, `Authenticated ${found.email}`);
+        renderAuthProfile();
+        renderCartAndShipping();
+        showToast(`Signed in as ${found.name} via user-service:3001`, 'emerald');
+      });
+
+      document.getElementById('form-register').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = document.getElementById('reg-name').value.trim();
+        const email = document.getElementById('reg-email').value.trim().toLowerCase();
+        const password = document.getElementById('reg-password').value;
+        const address = document.getElementById('reg-address').value.trim();
+
+        if (state.users.some(u => u.email.toLowerCase() === email)) {
+          recordMicroserviceCall('user', 'POST', '/api/auth/register', 409, `Duplicate email ${email}`);
+          showToast('An account with that email already exists.', 'rose');
+          return;
+        }
+
+        const newUser = {
+          id: 'usr-' + Math.floor(1000 + Math.random() * 9000),
+          name,
+          email,
+          password,
+          address,
+          token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.aks-' + Math.random().toString(36).substring(2, 10)
+        };
+        state.users.push(newUser);
+        state.currentUser = newUser;
+        document.getElementById('shipping-address').value = newUser.address;
+
+        recordMicroserviceCall('user', 'POST', '/api/auth/register', 201, `Registered ${newUser.id} (${newUser.email})`);
+        renderAuthProfile();
+        renderCartAndShipping();
+        e.target.reset();
+        showToast(`Account created for ${newUser.name}!`, 'emerald');
+      });
+
+      document.getElementById('btn-logout').addEventListener('click', () => {
+        state.currentUser = null;
+        recordMicroserviceCall('user', 'GET', '/api/auth/profile', 200, 'Cleared session bearer token');
+        renderAuthProfile();
+        renderCartAndShipping();
+        showToast('Signed out to guest session.', 'sky');
+      });
+
+      // DevOps manifest switcher & copy
+      document.querySelectorAll('.manifest-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.activeDoc = btn.getAttribute('data-doc');
+          renderManifestViewer();
+        });
+      });
+
+      document.getElementById('btn-copy-manifest').addEventListener('click', () => {
+        const text = MANIFEST_DOCS[state.activeDoc] || '';
+        const fallbackCopy = () => {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); } catch (err) {}
+          ta.remove();
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).catch(fallbackCopy);
+        } else {
+          fallbackCopy();
+        }
+        showToast('Copied manifest to clipboard!', 'emerald');
+      });
+
+      // LoadBalancer Ping & Log clear
+      document.getElementById('btn-simulate-traffic').addEventListener('click', () => {
+        const services = [
+          ['user', 'GET', '/health', 'Health probe OK'],
+          ['catalogue', 'GET', '/api/catalogue/products', 'LoadBalancer health & catalogue sync'],
+          ['cart', 'GET', '/api/cart/usr-1001', 'Cart state probe'],
+          ['shipping', 'GET', '/api/shipping/rates', 'Carrier tariff table probe (PostgreSQL)'],
+          ['order', 'GET', '/api/orders', 'Order ledger sync (PostgreSQL)']
+        ];
+        const pick = services[state.totalRequests % services.length];
+        recordMicroserviceCall(pick[0], pick[1], pick[2], 200, pick[3]);
+        showToast(`Routed probe to ${pick[0]}-service via Azure LoadBalancer`, 'sky');
+      });
+
+      document.getElementById('btn-clear-logs').addEventListener('click', () => {
+        state.logs = [];
+        renderTraceLogs();
+      });
+
+      // Initial renders
+      renderCatalogue();
+      renderCartAndShipping();
+      renderOrdersLedger();
+      renderAuthProfile();
+      renderManifestViewer();
+    });
+  </script>
+</body>
+</html>

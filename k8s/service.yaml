@@ -1,0 +1,123 @@
+# =============================================================================
+# service.yaml — Kubernetes Services (ClusterIP for DBs/Backends + LoadBalancer)
+# Apply with: kubectl apply -f deployment.yaml -f service.yaml
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-db
+  namespace: cloudmart-ecommerce
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-db
+  namespace: cloudmart-ecommerce
+spec:
+  type: ClusterIP
+  selector:
+    app: mongo-db
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: 27017
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: cloudmart-ecommerce
+spec:
+  type: ClusterIP
+  selector:
+    app: user-service
+  ports:
+    - name: http
+      port: 3001
+      targetPort: 3001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalogue-service
+  namespace: cloudmart-ecommerce
+spec:
+  type: ClusterIP
+  selector:
+    app: catalogue-service
+  ports:
+    - name: http
+      port: 3002
+      targetPort: 3002
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cart-service
+  namespace: cloudmart-ecommerce
+spec:
+  type: ClusterIP
+  selector:
+    app: cart-service
+  ports:
+    - name: http
+      port: 3003
+      targetPort: 3003
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shipping-service
+  namespace: cloudmart-ecommerce
+spec:
+  type: ClusterIP
+  selector:
+    app: shipping-service
+  ports:
+    - name: http
+      port: 3004
+      targetPort: 3004
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+  namespace: cloudmart-ecommerce
+spec:
+  type: ClusterIP
+  selector:
+    app: order-service
+  ports:
+    - name: http
+      port: 3005
+      targetPort: 3005
+---
+# Public Azure Standard LoadBalancer exposing the E-Commerce Application
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudmart-public-lb
+  namespace: cloudmart-ecommerce
+  labels:
+    app: frontend-gateway
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+    service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/healthz"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: frontend-gateway
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80

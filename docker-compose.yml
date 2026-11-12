@@ -1,0 +1,119 @@
+services:
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: cloudmart-postgres
+    environment:
+      - POSTGRES_USER=cloudmart
+      - POSTGRES_PASSWORD=cloudmart_pass
+      - POSTGRES_DB=cloudmart_sql
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - cloudmart-net
+    restart: unless-stopped
+
+  mongo-db:
+    image: mongo:7.0
+    container_name: cloudmart-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    networks:
+      - cloudmart-net
+    restart: unless-stopped
+
+  user-service:
+    build: ./user-service
+    container_name: cloudmart-user-service
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - DATABASE_URL=postgresql://cloudmart:cloudmart_pass@postgres-db:5432/cloudmart_sql
+    depends_on:
+      - postgres-db
+    networks:
+      - cloudmart-net
+    restart: unless-stopped
+
+  catalogue-service:
+    build: ./catalogue-service
+    container_name: cloudmart-catalogue-service
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - MONGO_URI=mongodb://mongo-db:27017/cloudmart_nosql
+    depends_on:
+      - mongo-db
+    networks:
+      - cloudmart-net
+    restart: unless-stopped
+
+  cart-service:
+    build: ./cart-service
+    container_name: cloudmart-cart-service
+    ports:
+      - "3003:3003"
+    environment:
+      - PORT=3003
+      - MONGO_URI=mongodb://mongo-db:27017/cloudmart_nosql
+    depends_on:
+      - mongo-db
+    networks:
+      - cloudmart-net
+    restart: unless-stopped
+
+  shipping-service:
+    build: ./shipping-service
+    container_name: cloudmart-shipping-service
+    ports:
+      - "3004:3004"
+    environment:
+      - PORT=3004
+      - DATABASE_URL=postgresql://cloudmart:cloudmart_pass@postgres-db:5432/cloudmart_sql
+    depends_on:
+      - postgres-db
+    networks:
+      - cloudmart-net
+    restart: unless-stopped
+
+  order-service:
+    build: ./order-service
+    container_name: cloudmart-order-service
+    ports:
+      - "3005:3005"
+    environment:
+      - PORT=3005
+      - DATABASE_URL=postgresql://cloudmart:cloudmart_pass@postgres-db:5432/cloudmart_sql
+    depends_on:
+      - postgres-db
+    networks:
+      - cloudmart-net
+    restart: unless-stopped
+
+  frontend-gateway:
+    build: ./frontend
+    container_name: cloudmart-frontend-lb
+    ports:
+      - "8080:80"
+    depends_on:
+      - user-service
+      - catalogue-service
+      - cart-service
+      - shipping-service
+      - order-service
+    networks:
+      - cloudmart-net
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  mongodata:
+
+networks:
+  cloudmart-net:
+    driver: bridge
